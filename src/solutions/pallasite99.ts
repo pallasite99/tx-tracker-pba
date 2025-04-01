@@ -8,14 +8,17 @@ import type {
 } from "../types"
 
 export default function pallasite99(api: API, outputApi: OutputAPI) {
+  // Track each transaction with the blocks it's seen in and its finalized block (if any)
   const txQueue: {
     hash: string
     seenInBlocks: Set<string>
     finalizedIn?: string
   }[] = []
 
+  // Maintain a list of all blocks seen so far, in order
   const seenBlocks: string[] = []
 
+  // Retrieve a transaction from the queue by hash, or create and register it if not found
   const getTx = (hash: string) => {
     let tx = txQueue.find(t => t.hash === hash)
     if (!tx) {
@@ -25,6 +28,7 @@ export default function pallasite99(api: API, outputApi: OutputAPI) {
     return tx
   }
 
+  // Attempt to settle a transaction in a given block if it hasn't been settled there yet
   const settleTxInBlock = (txHash: string, blockHash: string) => {
     const tx = getTx(txHash)
     if (tx.seenInBlocks.has(blockHash)) return
@@ -45,10 +49,11 @@ export default function pallasite99(api: API, outputApi: OutputAPI) {
       tx.seenInBlocks.add(blockHash)
       outputApi.onTxSettled(txHash, state)
     } catch {
-      // tx not in this block
+      // Transaction not found in this block, ignore
     }
   }
 
+  // Handle new transaction by checking it against all previously seen blocks
   const onNewTx = ({ value }: NewTransactionEvent) => {
     const tx = getTx(value)
     for (const blockHash of seenBlocks) {
@@ -56,6 +61,7 @@ export default function pallasite99(api: API, outputApi: OutputAPI) {
     }
   }
 
+  // Handle a new block by attempting to settle all known transactions against it
   const onNewBlock = ({ blockHash }: NewBlockEvent) => {
     seenBlocks.push(blockHash)
     for (const tx of txQueue) {
@@ -63,6 +69,7 @@ export default function pallasite99(api: API, outputApi: OutputAPI) {
     }
   }
 
+  // Finalize transactions that were settled in the finalized block
   const onFinalized = ({ blockHash }: FinalizedEvent) => {
     for (const tx of txQueue) {
       if (tx.seenInBlocks.has(blockHash) && tx.finalizedIn !== blockHash) {
@@ -83,12 +90,13 @@ export default function pallasite99(api: API, outputApi: OutputAPI) {
 
           outputApi.onTxDone(tx.hash, state)
         } catch {
-          // not finalizable
+          // Transaction cannot be finalized in this block, ignore
         }
       }
     }
   }
 
+  // Dispatch to appropriate handler based on event type
   return (event: IncomingEvent) => {
     switch (event.type) {
       case "newTransaction":
